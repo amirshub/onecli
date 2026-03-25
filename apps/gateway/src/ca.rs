@@ -252,20 +252,27 @@ impl CertificateAuthority {
         })
     }
 
+    /// Build leaf certificate params for a hostname.
+    fn leaf_params(hostname: &str) -> Result<CertificateParams> {
+        let mut params = CertificateParams::new(vec![hostname.to_string()])
+            .context("creating leaf cert params")?;
+        params.distinguished_name.push(DnType::CommonName, hostname);
+        params.use_authority_key_identifier_extension = true;
+        params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+        params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+        // Small backdate for clock skew
+        params.not_before = OffsetDateTime::now_utc() - time::Duration::minutes(5);
+        params.not_after = OffsetDateTime::now_utc() + time::Duration::hours(LEAF_VALIDITY_HOURS);
+        Ok(params)
+    }
+
     /// Generate a leaf certificate for `hostname`, signed by this CA.
     /// Returns a `ServerConfig` ready for use with `tokio-rustls`.
     fn generate_leaf(&self, hostname: &str) -> Result<ServerConfig> {
         let leaf_key =
             KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).context("generating leaf key pair")?;
 
-        let mut params = CertificateParams::new(vec![hostname.to_string()])
-            .context("creating leaf cert params")?;
-        params.distinguished_name.push(DnType::CommonName, hostname);
-        params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
-        params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
-        // Small backdate for clock skew
-        params.not_before = OffsetDateTime::now_utc() - time::Duration::minutes(5);
-        params.not_after = OffsetDateTime::now_utc() + time::Duration::hours(LEAF_VALIDITY_HOURS);
+        let params = Self::leaf_params(hostname)?;
 
         let leaf_cert = params
             .signed_by(&leaf_key, &self.ca_cert, &self.ca_key)
@@ -286,6 +293,18 @@ impl CertificateAuthority {
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
         Ok(config)
+    }
+
+    /// Sign a leaf cert and return raw DER bytes. Used in tests to inspect extensions.
+    #[cfg(test)]
+    fn sign_leaf_der(&self, hostname: &str) -> Result<Vec<u8>> {
+        let leaf_key =
+            KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).context("generating leaf key pair")?;
+        let params = Self::leaf_params(hostname)?;
+        let leaf_cert = params
+            .signed_by(&leaf_key, &self.ca_cert, &self.ca_key)
+            .context("signing leaf certificate")?;
+        Ok(leaf_cert.der().to_vec())
     }
 }
 
@@ -489,6 +508,23 @@ mod tests {
                 .permissions();
             assert_eq!(perms.mode() & 0o777, 0o600);
         }
+    }
+
+    #[test]
+    fn leaf_cert_contains_authority_key_identifier() {
+        let ca = test_ca();
+
+        // Uses the shared leaf_params() → same config as generate_leaf()
+        let leaf_der = ca
+            .sign_leaf_der("aki-test.example.com")
+            .expect("sign leaf cert");
+
+        // OID 2.5.29.35 (authorityKeyIdentifier) encoded as DER: 55 1d 23
+        let aki_oid = [0x55, 0x1d, 0x23];
+        assert!(
+            leaf_der.windows(aki_oid.len()).any(|w| w == aki_oid),
+            "leaf certificate must contain Authority Key Identifier extension (OID 2.5.29.35)"
+        );
     }
 
     #[tokio::test]
