@@ -98,6 +98,30 @@ export async function GET(request: NextRequest) {
         ? { CLAUDE_CODE_OAUTH_TOKEN: "placeholder" }
         : { ANTHROPIC_API_KEY: "placeholder" };
 
+    const bedrockConnection =
+      agent.secretMode === "selective"
+        ? await db.appConnection.findFirst({
+            where: {
+              accountId: auth.accountId,
+              provider: "bedrock",
+              status: "connected",
+              agentAppConnections: { some: { agentId: agent.id } },
+            },
+            select: { id: true },
+          })
+        : await db.appConnection.findFirst({
+            where: {
+              accountId: auth.accountId,
+              provider: "bedrock",
+              status: "connected",
+            },
+            select: { id: true },
+          });
+
+    if (bedrockConnection) {
+      authEnv.AWS_BEARER_TOKEN_BEDROCK = "placeholder";
+    }
+
     // Mark agent as connected after the response is sent
     after(() => markAgentConnected(auth.accountId));
 

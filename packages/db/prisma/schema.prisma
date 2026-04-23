@@ -246,7 +246,7 @@ model OnboardingSurvey {
 model AppConnection {
   id                  String               @id @default(uuid())
   accountId           String               @map("account_id")
-  provider            String // "github", "gmail", "google-calendar", "google-drive", etc.
+  provider            String // "github", "gmail", "bedrock", "google-calendar", "google-drive", etc.
   label               String?              @map("label") // auto-populated from metadata (email/username)
   status              String               @default("connected")
   credentials         String?              @map("credentials") // encrypted JSON (access_token, refresh_token, etc.)

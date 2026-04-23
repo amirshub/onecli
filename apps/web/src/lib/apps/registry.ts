@@ -1,4 +1,5 @@
 import type { AppDefinition } from "./types";
+import { bedrock } from "./bedrock";
 import { github } from "./github";
 import { gmail } from "./gmail";
 import { googleAdmin } from "./google-admin";
@@ -17,6 +18,7 @@ import { googleTasks } from "./google-tasks";
 import { resend } from "./resend";
 
 export const apps: AppDefinition[] = [
+  bedrock,
   gmail,
   github,
   googleDrive,
