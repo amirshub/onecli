@@ -21,15 +21,23 @@ services:
     networks:
       - onecli
 
+  # Build from the repo root so local changes (e.g. new apps) are included.
+  # Rebuild after edits: docker compose build onecli && docker compose up -d
+  # To use the published image instead: remove the `build:` block below and set
+  #   image: ghcr.io/onecli/onecli:latest
+  # then run: docker compose pull onecli && docker compose up -d
   onecli:
-    image: ghcr.io/onecli/onecli:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: onecli:local
     container_name: onecli
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "${ONECLI_BIND_HOST:-127.0.0.1}:10254:10254"
+      - "10254:10254"
       - "${ONECLI_BIND_HOST:-127.0.0.1}:10255:10255"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-onecli}:${POSTGRES_PASSWORD:-onecli}@postgres:5432/${POSTGRES_DB:-onecli}
