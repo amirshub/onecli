@@ -37,7 +37,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "10254:10254"
+      - "${ONECLI_BIND_HOST:-127.0.0.1}:10254:10254"
       - "${ONECLI_BIND_HOST:-127.0.0.1}:10255:10255"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-onecli}:${POSTGRES_PASSWORD:-onecli}@postgres:5432/${POSTGRES_DB:-onecli}
