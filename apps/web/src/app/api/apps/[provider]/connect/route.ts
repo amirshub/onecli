@@ -3,6 +3,7 @@ import { resolveApiAuth } from "@/lib/api-auth";
 import { handleServiceError, unauthorized } from "@/lib/api-utils";
 import { invalidateGatewayCache } from "@/lib/gateway-invalidate";
 import { getApp } from "@/lib/apps/registry";
+import { db } from "@onecli/db";
 import {
   createConnection,
   listConnectionsByProvider,
@@ -54,9 +55,26 @@ export const POST = async (request: NextRequest, { params }: Params) => {
       }
     }
 
-    const primaryField = app.connectionMethod.fields[0];
+    if (provider === "bedrock") {
+      const anthropicSecret = await db.secret.findFirst({
+        where: { accountId: auth.accountId, type: "anthropic" },
+        select: { id: true },
+      });
+      if (anthropicSecret) {
+        return NextResponse.json(
+          {
+            error:
+              "Bedrock and Anthropic are mutually exclusive. Remove your Anthropic secret before connecting Bedrock.",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    const accessTokenField = app.connectionMethod.fields[0];
     const credentials: Record<string, unknown> = {
-      access_token: body.fields[primaryField!.name],
+      access_token: body.fields[accessTokenField!.name],
+      ...body.fields,
     };
 
     if (body.connectionId) {

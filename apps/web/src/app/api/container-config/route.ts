@@ -4,6 +4,7 @@ import { resolveApiAuth } from "@/lib/api-auth";
 import { unauthorized } from "@/lib/api-utils";
 import { GATEWAY_BASE_URL } from "@/lib/env";
 import { loadCaCertificate } from "@/lib/gateway-ca";
+import { cryptoService } from "@/lib/crypto";
 import { parseAnthropicMetadata } from "@/lib/validations/secret";
 import { DEFAULT_AGENT_NAME } from "@/lib/constants";
 import { generateAccessToken } from "@/lib/services/agent-service";
@@ -91,13 +92,6 @@ export async function GET(request: NextRequest) {
             select: { metadata: true },
           });
 
-    const meta = parseAnthropicMetadata(anthropicSecret?.metadata);
-
-    const authEnv: Record<string, string> =
-      meta?.authMode === "oauth"
-        ? { CLAUDE_CODE_OAUTH_TOKEN: "placeholder" }
-        : { ANTHROPIC_API_KEY: "placeholder" };
-
     const bedrockConnection =
       agent.secretMode === "selective"
         ? await db.appConnection.findFirst({
@@ -107,7 +101,7 @@ export async function GET(request: NextRequest) {
               status: "connected",
               agentAppConnections: { some: { agentId: agent.id } },
             },
-            select: { id: true },
+            select: { id: true, credentials: true },
           })
         : await db.appConnection.findFirst({
             where: {
@@ -115,11 +109,46 @@ export async function GET(request: NextRequest) {
               provider: "bedrock",
               status: "connected",
             },
-            select: { id: true },
+            select: { id: true, credentials: true },
           });
 
+    const authEnv: Record<string, string> = {};
+
+    // Mutual exclusivity: if Bedrock is connected, emit only Bedrock env vars.
     if (bedrockConnection) {
+      authEnv.CLAUDE_CODE_USE_BEDROCK = "1";
       authEnv.AWS_BEARER_TOKEN_BEDROCK = "placeholder";
+
+      const encrypted = bedrockConnection.credentials;
+      if (encrypted) {
+        try {
+          const decrypted = await cryptoService.decrypt(encrypted);
+          const json = JSON.parse(decrypted) as Record<string, unknown>;
+          const region = json.region;
+          if (typeof region === "string" && region.trim()) {
+            authEnv.AWS_REGION = region.trim();
+          }
+        } catch (err) {
+          logger.warn(
+            { err, connectionId: bedrockConnection.id },
+            "failed to decrypt bedrock connection credentials",
+          );
+        }
+      }
+    } else {
+      const meta = parseAnthropicMetadata(anthropicSecret?.metadata);
+
+      // Only emit Anthropic placeholders when an Anthropic secret exists.
+      if (anthropicSecret) {
+        if (meta?.authMode === "oauth") {
+          authEnv.CLAUDE_CODE_OAUTH_TOKEN = "placeholder";
+        } else {
+          authEnv.ANTHROPIC_API_KEY = "placeholder";
+        }
+      } else {
+        // Legacy fallback: preserve previous default behavior
+        authEnv.ANTHROPIC_API_KEY = "placeholder";
+      }
     }
 
     // Mark agent as connected after the response is sent

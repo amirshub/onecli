@@ -14,6 +14,12 @@ export const bedrock: AppDefinition = {
     type: "api_key",
     fields: [
       {
+        name: "region",
+        label: "AWS region",
+        description: "The region for Bedrock Runtime (e.g. us-east-1).",
+        placeholder: "us-east-1",
+      },
+      {
         name: "apiKey",
         label: "Bedrock API key",
         description:
