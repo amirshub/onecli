@@ -26,6 +26,27 @@ export const bedrock: AppDefinition = {
           "From the Amazon Bedrock console. Also supported via AWS_BEARER_TOKEN_BEDROCK in containers.",
         placeholder: "Your Bedrock API key",
       },
+      {
+        name: "anthropicDefaultSonnetModel",
+        label: "Default Sonnet model",
+        description:
+          "Optional: controls the default Sonnet model id used by the agent.",
+        placeholder: "us.anthropic.claude-sonnet-4-6",
+      },
+      {
+        name: "anthropicDefaultOpusModel",
+        label: "Default Opus model",
+        description:
+          "Optional: controls the default Opus model id used by the agent.",
+        placeholder: "us.anthropic.claude-opus-4-7",
+      },
+      {
+        name: "anthropicDefaultHaikuModel",
+        label: "Default Haiku model",
+        description:
+          "Optional: controls the default Haiku model id used by the agent.",
+        placeholder: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      },
     ],
   },
   available: true,

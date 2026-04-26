@@ -2,7 +2,9 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@onecli/db";
 import { resolveApiAuth } from "@/lib/api-auth";
 import { unauthorized } from "@/lib/api-utils";
-import { GATEWAY_BASE_URL } from "@/lib/env";
+import {
+  GATEWAY_BASE_URL,
+} from "@/lib/env";
 import { loadCaCertificate } from "@/lib/gateway-ca";
 import { cryptoService } from "@/lib/crypto";
 import { parseAnthropicMetadata } from "@/lib/validations/secret";
@@ -127,6 +129,20 @@ export async function GET(request: NextRequest) {
           const region = json.region;
           if (typeof region === "string" && region.trim()) {
             authEnv.AWS_REGION = region.trim();
+          }
+
+          const sonnet = json.anthropicDefaultSonnetModel;
+          const opus = json.anthropicDefaultOpusModel;
+          const haiku = json.anthropicDefaultHaikuModel;
+
+          if (typeof sonnet === "string" && sonnet.trim()) {
+            authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet.trim();
+          }
+          if (typeof opus === "string" && opus.trim()) {
+            authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = opus.trim();
+          }
+          if (typeof haiku === "string" && haiku.trim()) {
+            authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku.trim();
           }
         } catch (err) {
           logger.warn(

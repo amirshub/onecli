@@ -46,7 +46,14 @@ export const POST = async (request: NextRequest, { params }: Params) => {
       );
     }
 
+    const isOptionalField = (name: string) =>
+      provider === "bedrock" &&
+      (name === "anthropicDefaultSonnetModel" ||
+        name === "anthropicDefaultOpusModel" ||
+        name === "anthropicDefaultHaikuModel");
+
     for (const field of app.connectionMethod.fields) {
+      if (isOptionalField(field.name)) continue;
       if (!body.fields[field.name]?.trim()) {
         return NextResponse.json(
           { error: `${field.label} is required` },
@@ -71,7 +78,15 @@ export const POST = async (request: NextRequest, { params }: Params) => {
       }
     }
 
-    const accessTokenField = app.connectionMethod.fields[0];
+    const accessTokenField =
+      provider === "bedrock"
+        ? (() => {
+            for (const f of app.connectionMethod.fields) {
+              if (f.name === "apiKey") return f;
+            }
+            return app.connectionMethod.fields[0];
+          })()
+        : app.connectionMethod.fields[0];
     const credentials: Record<string, unknown> = {
       access_token: body.fields[accessTokenField!.name],
       ...body.fields,
