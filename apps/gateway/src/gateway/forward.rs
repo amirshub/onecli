@@ -85,6 +85,11 @@ const BODY_PREVIEW_BYTES: usize = 4096;
 /// Auth error messages are small JSON; no need to scan large bodies.
 const AUTH_CHECK_BODY_LIMIT: usize = 8192;
 
+/// Maximum response body bytes to buffer for logging on non-2xx responses.
+/// Keep this small to avoid memory bloat and to reduce the chance of logging
+/// large payloads.
+const ERROR_BODY_LOG_LIMIT: usize = 8192;
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn forward_request(
     req: Request<Incoming>,
@@ -308,6 +313,11 @@ pub(crate) async fn forward_request(
     let status = upstream_resp.status();
     let resp_headers = upstream_resp.headers().clone();
 
+    let content_type = resp_headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-");
+
     // If no credentials were injected and upstream returned 401/403,
     // guide the agent to connect/configure credentials in OneCLI.
     if injection_count == 0
@@ -396,10 +406,40 @@ pub(crate) async fn forward_request(
         return Ok(response);
     }
 
-    let content_type = resp_headers
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("-");
+    // For non-2xx responses, buffer the body so we can log a preview.
+    // This helps debug upstream validation/auth errors (e.g., Bedrock 400s).
+    //
+    // Success responses remain fully streamed (critical for SSE).
+    if !status.is_success() {
+        let body_bytes = upstream_resp
+            .bytes()
+            .await
+            .context("reading error response body for logging")?;
+
+        let preview = &body_bytes[..body_bytes.len().min(ERROR_BODY_LOG_LIMIT)];
+        let preview_text = String::from_utf8_lossy(preview);
+
+        info!(
+            method = %method,
+            url = %url,
+            status = %status.as_u16(),
+            content_type = %content_type,
+            injections_applied = injection_count,
+            error_body = %preview_text,
+            error_body_truncated = body_bytes.len() > ERROR_BODY_LOG_LIMIT,
+            "MITM"
+        );
+
+        // Forward the buffered non-2xx response as-is.
+        let mut response = Response::new(Either::Left(Full::new(body_bytes)));
+        *response.status_mut() = status;
+        for (name, value) in resp_headers.iter() {
+            if is_forwarded_response_header(name) {
+                response.headers_mut().append(name.clone(), value.clone());
+            }
+        }
+        return Ok(response);
+    }
 
     info!(
         method = %method,
