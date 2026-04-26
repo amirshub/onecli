@@ -44,6 +44,7 @@ services:
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
       NEXT_PUBLIC_APP_URL: http://${ONECLI_BIND_HOST:-127.0.0.1}:10254
       APP_URL: http://${ONECLI_BIND_HOST:-127.0.0.1}:10254
+      AWS_BEDROCK_MODEL: ${AWS_BEDROCK_MODEL:-global.anthropic.claude-sonnet-4-6}
     volumes:
       - app-data:/app/data
     env_file:
