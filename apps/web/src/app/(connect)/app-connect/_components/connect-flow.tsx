@@ -280,18 +280,7 @@ const ApiKeyFlow = ({
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  const isOptionalField = useCallback(
-    (name: string) =>
-      app.id === "bedrock" &&
-      (name === "anthropicDefaultSonnetModel" ||
-        name === "anthropicDefaultOpusModel" ||
-        name === "anthropicDefaultHaikuModel"),
-    [app.id],
-  );
-
-  const hasInput = fields
-    .filter((f) => !isOptionalField(f.name))
-    .every((f) => !!values[f.name]?.trim());
+  const hasInput = fields.every((f) => !!values[f.name]?.trim());
 
   const handleSubmit = async () => {
     if (!hasInput) return;
@@ -325,9 +314,7 @@ const ApiKeyFlow = ({
           <div key={field.name} className="grid gap-1.5">
             <Label htmlFor={`connect-${field.name}`}>
               {field.label}
-              {!isOptionalField(field.name) && (
-                <span className="text-destructive ml-0.5">*</span>
-              )}
+              <span className="text-destructive ml-0.5">*</span>
             </Label>
             {field.description && (
               <p className="text-xs text-muted-foreground">
@@ -336,7 +323,7 @@ const ApiKeyFlow = ({
             )}
             <Input
               id={`connect-${field.name}`}
-              type={field.name === "apiKey" ? "password" : "text"}
+              type="password"
               value={values[field.name] ?? ""}
               onChange={(e) =>
                 setValues((prev) => ({
