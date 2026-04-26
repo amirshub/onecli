@@ -272,10 +272,31 @@ pub(crate) fn is_bedrock_runtime_host(hostname: &str) -> bool {
     !region.is_empty()
 }
 
+/// True for regional Bedrock control-plane hosts, e.g. `bedrock.us-east-1.amazonaws.com`
+/// or `bedrock.cn-north-1.amazonaws.com.cn` (China partition).
+///
+/// Note: Bedrock Runtime (model invocation) uses `bedrock-runtime.<region>.*`,
+/// but some SDKs also call the control-plane host for discovery APIs like
+/// `/inference-profiles`.
+pub(crate) fn is_bedrock_control_plane_host(hostname: &str) -> bool {
+    let rest = match hostname.strip_prefix("bedrock.") {
+        Some(r) => r,
+        None => return false,
+    };
+    let region = match rest
+        .strip_suffix(".amazonaws.com")
+        .or_else(|| rest.strip_suffix(".amazonaws.com.cn"))
+    {
+        Some(r) => r,
+        None => return false,
+    };
+    !region.is_empty()
+}
+
 /// Given a hostname, return the first matching provider's (id, display_name).
 /// Returns `None` if no provider matches.
 pub(crate) fn provider_for_host(hostname: &str) -> Option<(&'static str, &'static str)> {
-    if is_bedrock_runtime_host(hostname) {
+    if is_bedrock_runtime_host(hostname) || is_bedrock_control_plane_host(hostname) {
         return Some(("bedrock", "Amazon Bedrock"));
     }
     APP_PROVIDERS.iter().find_map(|p| {
@@ -323,7 +344,7 @@ pub(crate) fn providers_for_host(hostname: &str) -> Vec<&'static str> {
             }
         }
     }
-    if is_bedrock_runtime_host(hostname) {
+    if is_bedrock_runtime_host(hostname) || is_bedrock_control_plane_host(hostname) {
         providers.push("bedrock");
     }
     providers
@@ -345,7 +366,9 @@ fn path_pattern_for(provider: &str, hostname: &str) -> String {
 /// For multi-rule providers (e.g., Google Drive), use `build_app_injection_rules`.
 #[cfg(test)]
 fn build_app_injections(provider: &str, hostname: &str, token: &str) -> Vec<Injection> {
-    if provider == "bedrock" && is_bedrock_runtime_host(hostname) {
+    if provider == "bedrock"
+        && (is_bedrock_runtime_host(hostname) || is_bedrock_control_plane_host(hostname))
+    {
         return vec![Injection::SetHeader {
             name: "authorization".to_string(),
             value: format!("Bearer {token}"),
@@ -383,7 +406,9 @@ pub(crate) fn build_app_injection_rules(
     hostname: &str,
     token: &str,
 ) -> Vec<(String, Vec<Injection>)> {
-    if provider == "bedrock" && is_bedrock_runtime_host(hostname) {
+    if provider == "bedrock"
+        && (is_bedrock_runtime_host(hostname) || is_bedrock_control_plane_host(hostname))
+    {
         return vec![(
             "*".to_string(),
             vec![Injection::SetHeader {
@@ -776,6 +801,13 @@ mod tests {
     }
 
     #[test]
+    fn is_bedrock_control_plane_host_accepts_regional_endpoints() {
+        assert!(is_bedrock_control_plane_host("bedrock.us-east-1.amazonaws.com"));
+        assert!(is_bedrock_control_plane_host("bedrock.eu-west-1.amazonaws.com"));
+        assert!(is_bedrock_control_plane_host("bedrock.cn-north-1.amazonaws.com.cn"));
+    }
+
+    #[test]
     fn is_bedrock_runtime_host_rejects_non_bedrock_hosts() {
         assert!(!is_bedrock_runtime_host("api.github.com"));
         assert!(!is_bedrock_runtime_host("bedrock-runtime.amazonaws.com"));
@@ -788,6 +820,14 @@ mod tests {
     }
 
     #[test]
+    fn is_bedrock_control_plane_host_rejects_non_bedrock_hosts() {
+        assert!(!is_bedrock_control_plane_host("api.github.com"));
+        assert!(!is_bedrock_control_plane_host("bedrock.amazonaws.com"));
+        assert!(!is_bedrock_control_plane_host("bedrock-runtime.us-east-1.amazonaws.com"));
+        assert!(!is_bedrock_control_plane_host("not-bedrock.us-east-1.amazonaws.com"));
+    }
+
+    #[test]
     fn providers_for_bedrock_runtime_host() {
         assert_eq!(
             providers_for_host("bedrock-runtime.us-east-1.amazonaws.com"),
@@ -796,8 +836,22 @@ mod tests {
     }
 
     #[test]
+    fn providers_for_bedrock_control_plane_host() {
+        assert_eq!(
+            providers_for_host("bedrock.us-east-1.amazonaws.com"),
+            vec!["bedrock"]
+        );
+    }
+
+    #[test]
     fn provider_for_host_returns_bedrock() {
         let result = provider_for_host("bedrock-runtime.ap-southeast-2.amazonaws.com");
+        assert_eq!(result, Some(("bedrock", "Amazon Bedrock")));
+    }
+
+    #[test]
+    fn provider_for_host_returns_bedrock_control_plane() {
+        let result = provider_for_host("bedrock.ap-southeast-2.amazonaws.com");
         assert_eq!(result, Some(("bedrock", "Amazon Bedrock")));
     }
 
@@ -824,6 +878,19 @@ mod tests {
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].0, "*");
         assert_eq!(rules[0].1, injections);
+    }
+
+    #[test]
+    fn bedrock_control_plane_injection_uses_bearer() {
+        let injections =
+            build_app_injections("bedrock", "bedrock.us-east-1.amazonaws.com", "br_key_test");
+        assert_eq!(
+            injections,
+            vec![Injection::SetHeader {
+                name: "authorization".to_string(),
+                value: "Bearer br_key_test".to_string(),
+            }]
+        );
     }
 
     #[test]
