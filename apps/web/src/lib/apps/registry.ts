@@ -15,10 +15,12 @@ import { googleSearchConsole } from "./google-search-console";
 import { googleSheets } from "./google-sheets";
 import { googleSlides } from "./google-slides";
 import { googleTasks } from "./google-tasks";
+import { homeAssistant } from "./home-assistant";
 import { resend } from "./resend";
 
 export const apps: AppDefinition[] = [
   bedrock,
+  homeAssistant,
   gmail,
   github,
   googleDrive,

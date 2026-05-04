@@ -251,6 +251,13 @@ static APP_PROVIDERS: &[AppProvider] = &[
         host_rules: &[],
         refresh: None,
     },
+    /// Host matching uses `AppConnection.metadata.connection_domain`; see [`host_under_connection_domain`].
+    AppProvider {
+        provider: "home-assistant",
+        display_name: "Home Assistant",
+        host_rules: &[],
+        refresh: None,
+    },
 ];
 
 // ── Public API ─────────────────────────────────────────────────────────
@@ -350,6 +357,32 @@ pub(crate) fn providers_for_host(hostname: &str) -> Vec<&'static str> {
     providers
 }
 
+/// True if `request_host` equals `domain` (ASCII case-insensitive) or is a DNS subdomain of it
+/// (dot boundary — not a substring match).
+pub(crate) fn host_under_connection_domain(request_host: &str, domain: &str) -> bool {
+    let dom = domain.trim().trim_end_matches('.');
+    if dom.is_empty() {
+        return false;
+    }
+    let rh = request_host.trim().to_ascii_lowercase();
+    let d = dom.to_ascii_lowercase();
+    rh == d || rh.ends_with(&format!(".{d}"))
+}
+
+/// True when metadata carries `connection_domain` and the request hostname is under that domain.
+pub(crate) fn ha_connection_metadata_matches_host(
+    metadata: Option<&serde_json::Value>,
+    hostname: &str,
+) -> bool {
+    let Some(meta) = metadata else {
+        return false;
+    };
+    let Some(domain) = meta.get("connection_domain").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    host_under_connection_domain(hostname, domain)
+}
+
 /// Return the path pattern for the first matching host rule of a provider.
 /// For providers with multiple rules on the same host, use `build_app_injection_rules` instead.
 #[cfg(test)]
@@ -369,6 +402,13 @@ fn build_app_injections(provider: &str, hostname: &str, token: &str) -> Vec<Inje
     if provider == "bedrock"
         && (is_bedrock_runtime_host(hostname) || is_bedrock_control_plane_host(hostname))
     {
+        return vec![Injection::SetHeader {
+            name: "authorization".to_string(),
+            value: format!("Bearer {token}"),
+        }];
+    }
+
+    if provider == "home-assistant" {
         return vec![Injection::SetHeader {
             name: "authorization".to_string(),
             value: format!("Bearer {token}"),
@@ -409,6 +449,16 @@ pub(crate) fn build_app_injection_rules(
     if provider == "bedrock"
         && (is_bedrock_runtime_host(hostname) || is_bedrock_control_plane_host(hostname))
     {
+        return vec![(
+            "*".to_string(),
+            vec![Injection::SetHeader {
+                name: "authorization".to_string(),
+                value: format!("Bearer {token}"),
+            }],
+        )];
+    }
+
+    if provider == "home-assistant" {
         return vec![(
             "*".to_string(),
             vec![Injection::SetHeader {
@@ -897,6 +947,65 @@ mod tests {
     fn bedrock_unknown_host_returns_empty() {
         assert!(build_app_injections("bedrock", "api.github.com", "x").is_empty());
         assert!(build_app_injection_rules("bedrock", "api.github.com", "x").is_empty());
+    }
+
+    // ── Home Assistant (metadata connection_domain) ───────────────────
+
+    #[test]
+    fn host_under_connection_domain_allows_apex_and_subdomains() {
+        assert!(host_under_connection_domain("ha.example.com", "ha.example.com"));
+        assert!(host_under_connection_domain("Ha.example.com", "ha.example.com"));
+        assert!(host_under_connection_domain("a.ha.example.com", "ha.example.com"));
+        assert!(host_under_connection_domain("x.y.ha.example.com", "ha.example.com"));
+    }
+
+    #[test]
+    fn host_under_connection_domain_rejects_non_suffix() {
+        assert!(!host_under_connection_domain(
+            "not-ha.example.com",
+            "ha.example.com"
+        ));
+        assert!(!host_under_connection_domain("example.com", "ha.example.com"));
+        assert!(!host_under_connection_domain("ha.example.com", ""));
+        assert!(!host_under_connection_domain("tenant.ha.example.com", "ample.com"));
+    }
+
+    #[test]
+    fn ha_connection_metadata_matches_host_respects_domain() {
+        let meta = serde_json::json!({ "connection_domain": "ha.example.com" });
+        assert!(ha_connection_metadata_matches_host(
+            Some(&meta),
+            "tenant.ha.example.com"
+        ));
+        assert!(!ha_connection_metadata_matches_host(
+            Some(&meta),
+            "other.com"
+        ));
+        assert!(!ha_connection_metadata_matches_host(
+            None,
+            "tenant.ha.example.com"
+        ));
+    }
+
+    #[test]
+    fn home_assistant_injection_uses_bearer() {
+        let injections = build_app_injections("home-assistant", "tenant.ha.example.com", "tok");
+        assert_eq!(
+            injections,
+            vec![Injection::SetHeader {
+                name: "authorization".to_string(),
+                value: "Bearer tok".to_string(),
+            }]
+        );
+        let rules = build_app_injection_rules("home-assistant", "tenant.ha.example.com", "tok");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].0, "*");
+        assert_eq!(rules[0].1, injections);
+    }
+
+    #[test]
+    fn providers_for_host_does_not_list_home_assistant_statically() {
+        assert!(!providers_for_host("tenant.ha.example.com").contains(&"home-assistant"));
     }
 
     // ── Edge cases ───────────────────────────────────────────────────

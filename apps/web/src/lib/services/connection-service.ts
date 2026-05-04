@@ -8,6 +8,10 @@ import { ServiceError } from "@/lib/services/errors";
 export const extractLabel = (
   metadata?: Record<string, unknown>,
 ): string | null => {
+  const connectionDomain = metadata?.connection_domain;
+  if (typeof connectionDomain === "string" && connectionDomain) {
+    return connectionDomain;
+  }
   const email = metadata?.email;
   const username = metadata?.username;
   const name = metadata?.name;
